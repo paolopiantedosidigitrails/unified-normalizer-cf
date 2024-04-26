@@ -1,5 +1,4 @@
 import functions_framework
-import requests
 #from multiprocessing.pool import ThreadPool
 from flask import jsonify
 import traceback
