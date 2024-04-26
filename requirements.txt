@@ -1,0 +1,6 @@
+functions-framework==3.*
+numpy==1.26.3
+sentence-transformers==2.3.0
+pymilvus==2.3.6
+together == 1.1.1
+rapidfuzz == 3.8.1
