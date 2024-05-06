@@ -21,7 +21,8 @@ load_dotenv()
 with open("config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
-MODEL_NAME_LLM = os.getenv("MODEL_NAME_LLM", config['MODEL_NAME_LLM'])
+MODEL_NAME_LLM = os.getenv("MODEL_NAME_LLM", config['MODEL_NAME_LLM'])#"meta-llama/Meta-Llama-3-70B"
+ #
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 client_t = Together(api_key=TOGETHER_API_KEY)
 
@@ -470,6 +471,7 @@ class Normalizer():
         """
             # load csv_prompt
         prompt = self.create_prompt(raw_string, verified_results)
+        n_field_csv = len(prompt.split('\n')[0].split(";"))
 
         token_n = len(tokenizer.encode(prompt))
         if token_n > 8000:
@@ -492,6 +494,8 @@ class Normalizer():
             print(f"API call successful after {i+1} attempts.")
             try:
                 list_response_llm = resp.split(';')
+                if len(list_response_llm) != n_field_csv-1:
+                    raise ValueError(f"Response from LLM has wrong number of fields. Expected {n_field_csv-1}, got {len(list_response_llm)}")
                 norm_position = 0
 
                 if self.header_notes is not None:
@@ -515,7 +519,7 @@ class Normalizer():
                 -> Prompt: {prompt}
                 -> Error: {e}
                 """)
-                return None, None, None, None
+                return None, None, None, token_n
 
     def normalize(self, raw_string,
                 threshold_verified_accept=None,
@@ -586,24 +590,30 @@ class Normalizer():
                         notes: {notes}
                         token_used: {token_n}""")
 
-        # check if normalized string is already in the candidates index
-        in_candidates, candidates_result = self.check_if_normalized_is_in_collection(norm_string, 'candidates')
-        print(f"Normalized string {norm_string} is in candidates: {in_candidates}")
-        if in_candidates:
-            # overwrite the new associated info with the old associated info
-            additional_info = candidates_result['additional_info']
-            print(f"Normalized string {norm_string} is in candidates. Overwriting the LLM output. With additional info taken from db: {additional_info}")
-            normalization_info = {"type": "candidate_indirect_match", "score": None, "token_n": token_n}
+        if (len(norm_string) if norm_string else 0)<200:
+            # check if normalized string is already in the candidates index
+            in_candidates, candidates_result = self.check_if_normalized_is_in_collection(norm_string, 'candidates')
+            print(f"Normalized string {norm_string} is in candidates: {in_candidates}")
+            if in_candidates:
+                # overwrite the new associated info with the old associated info
+                additional_info = candidates_result['additional_info']
+                print(f"Normalized string {norm_string} is in candidates. Overwriting the LLM output. With additional info taken from db: {additional_info}")
+                normalization_info = {"type": "candidate_indirect_match", "score": None, "token_n": token_n}
+            else:
+                additional_info = additional_info_llm
+                normalization_info = {"type": "new_normalized_string", "score": None, "token_n": token_n}
+                # print(f"Normalized string {norm_string} is not in candidates. Adding it. With additional info: {additional_info}")
+                # we add to the candidates index the normalized string as if it was a new raw string
+                # self.add_to_index('candidates', norm_string, norm_string, additional_info, self.default_notes, self.get_word_embedding(norm_string)['embeddings'][0], flush_db)
+
+            # in any case, add the couple (raw string, normalized string+associated info) to the candidates index if is not a norm error
+            self.add_to_index('candidates', raw_string, norm_string, additional_info, notes, raw_embedding, flush_db)
         else:
-            additional_info = additional_info_llm
-            normalization_info = {"type": "new_normalized_string", "score": None, "token_n": token_n}
-            # print(f"Normalized string {norm_string} is not in candidates. Adding it. With additional info: {additional_info}")
-            # we add to the candidates index the normalized string as if it was a new raw string
-            # self.add_to_index('candidates', norm_string, norm_string, additional_info, self.default_notes, self.get_word_embedding(norm_string)['embeddings'][0], flush_db)
-
-        # in any case, add the couple (raw string, normalized string+associated info) to the candidates index
-        self.add_to_index('candidates', raw_string, norm_string, additional_info, notes, raw_embedding, flush_db)
-
+            print(f"""Normalization failed for {raw_string}
+             normalized string: {norm_string}""")
+            normalization_info = {"type": "norm_error", "score": None, "token_n": token_n}
+            additional_info = None
+            
         return norm_string, additional_info, notes, normalization_info
 
 
@@ -612,7 +622,8 @@ class SkillNormalizerOld(Normalizer):
         super().__init__("skill"+test,
                          header_raw_string="skill_raw",
                          header_norm_string="skill_normalized",
-                         header_additional_info=["domain", "field", "type_of_skill"])
+                         header_additional_info=["domain", "field", "type_of_skill"],
+)
         
     
 class CourseSkillNormalizer(Normalizer):
@@ -687,5 +698,5 @@ class SkillNormalizerNew(Normalizer):
         return super().create_prompt(raw_string, verified_results, 'new_skills_dataset_prompt.csv')
 
 if __name__ == "__main__":
-    normalizer = JobNormalizerWithHierarchy()
-    normalizer.normalize("java develope", threshold_verified_accept=2, threshold_candidate_accept=2)
+    normalizer = SkillNormalizerOld()
+    normalizer.normalize('Communication · Banking · Microsoft Word · Data Entry · Customer Service · Contact Centers', threshold_verified_accept=2, threshold_candidate_accept=2)

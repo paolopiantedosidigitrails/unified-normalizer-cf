@@ -1,7 +1,7 @@
 MODEL_NAME_LLM: meta-llama/Llama-3-8b-hf
 
 ALIAS: default
-MILVUS_HOST: http://10.198.0.4 #http://localhost #
+MILVUS_HOST: http://localhost #http://10.198.0.4 #
 MILVUS_PORT: 19530
 # MILVUS_TOKEN: root:Milvus
 LOGGING_LEVEL: INFO
