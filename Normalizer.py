@@ -163,9 +163,13 @@ class Normalizer():
             words = [words]
 
         words = [preprocessing(word) for word in words]
-        lock.acquire()
-        embeddings = EMBEDDING_MODEL.encode(words, show_progress_bar=False)
-        lock.release()
+        
+        try:
+          embeddings = EMBEDDING_MODEL.encode(words, show_progress_bar=False)
+        except: 
+          lock.acquire()
+          embeddings = EMBEDDING_MODEL.encode(words, show_progress_bar=False)
+          lock.release()
         return {'words': words, 'embeddings': embeddings}
 
     def get_collections(self):
@@ -495,7 +499,8 @@ class Normalizer():
             try:
                 list_response_llm = resp.split(';')
                 if len(list_response_llm) != n_field_csv-1:
-                    raise ValueError(f"Response from LLM has wrong number of fields. Expected {n_field_csv-1}, got {len(list_response_llm)}")
+                    raise ValueError(f"""Response from LLM has wrong number of fields. Expected {n_field_csv-1}, got {len(list_response_llm)}
+                    LLM response: {resp}""")
                 norm_position = 0
 
                 if self.header_notes is not None:
@@ -563,9 +568,9 @@ class Normalizer():
         normalization_info = {"type": None, "score": None, "token_n": None}
         # get raw string embedding
         print(f"Normalizing: {raw_string}, norm_type: {self.norm_type}")
-        if len(raw_string) > 200:
+        if len(raw_string.encode('utf-8')) > 200:
             print(f"Raw string {raw_string} is too long. Truncating it.")
-            raw_string = raw_string[:200]
+            raw_string = raw_string.encode('utf-8')[:200].decode('utf-8', 'ignore')
         raw_embedding = self.get_word_embedding(raw_string)['embeddings'][0]
 
         # check if raw string is already in the verified index using vector search
@@ -589,8 +594,22 @@ class Normalizer():
                         additional_info: {additional_info_llm},
                         notes: {notes}
                         token_used: {token_n}""")
+        
+        norm_ok = True
+        if norm_string is None:
+            norm_ok = False
+        if (len(norm_string.encode('utf-8')) if norm_string else 0)>200:
+            norm_ok = False
+        if additional_info_llm is not None:
+            for add_info in additional_info_llm.values():
+                if (len(str(add_info).encode('utf-8')) if add_info else 0)>200:
+                    norm_ok = False
+        if notes is not None:
+            for note in notes.values():
+                if (len(str(note).encode('utf-8')) if note else 0)>200:
+                    norm_ok = False
 
-        if (len(norm_string) if norm_string else 0)<200:
+        if norm_ok:
             # check if normalized string is already in the candidates index
             in_candidates, candidates_result = self.check_if_normalized_is_in_collection(norm_string, 'candidates')
             print(f"Normalized string {norm_string} is in candidates: {in_candidates}")
@@ -603,8 +622,6 @@ class Normalizer():
                 additional_info = additional_info_llm
                 normalization_info = {"type": "new_normalized_string", "score": None, "token_n": token_n}
                 # print(f"Normalized string {norm_string} is not in candidates. Adding it. With additional info: {additional_info}")
-                # we add to the candidates index the normalized string as if it was a new raw string
-                # self.add_to_index('candidates', norm_string, norm_string, additional_info, self.default_notes, self.get_word_embedding(norm_string)['embeddings'][0], flush_db)
 
             # in any case, add the couple (raw string, normalized string+associated info) to the candidates index if is not a norm error
             self.add_to_index('candidates', raw_string, norm_string, additional_info, notes, raw_embedding, flush_db)
@@ -699,4 +716,4 @@ class SkillNormalizerNew(Normalizer):
 
 if __name__ == "__main__":
     normalizer = SkillNormalizerOld()
-    normalizer.normalize('Communication · Banking · Microsoft Word · Data Entry · Customer Service · Contact Centers', threshold_verified_accept=2, threshold_candidate_accept=2)
+    normalizer.normalize('Depth digital ecosystem knowledge (e.g. from OTTs to digital payments, Omnichannel and aaS solutions). Solid technology background. Digital technologies follower.  +150 managed people. +100M€/year managed business volume', threshold_verified_accept=2, threshold_candidate_accept=2)

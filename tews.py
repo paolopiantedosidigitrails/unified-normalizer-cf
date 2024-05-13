@@ -24,8 +24,7 @@ data = {
      "norm_type": "skill"
     },
     "calls": [
-     ["pithon"],
-     ["contabilità aziendale"]
+     ["Fireproofing"]
     ]
 }
 
